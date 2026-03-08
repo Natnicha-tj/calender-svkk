@@ -151,12 +151,27 @@ var rows=[],frows=[],curg='all',curv='table',caly=new Date().getFullYear(),calm=
 function loadData(){
   var btn=document.getElementById('sicon');
   btn.textContent='⏳';
-  var url='https://script.google.com/macros/s/AKfycbyqJKDDUJSl1SbSPxWUG2b5NTi5EVWWyYck9UhdWDt8WrbL1FDeKSL1A6Y2MlLfJY11/exec?t='+Date.now();
+  var url='https://script.google.com/macros/s/AKfycbyBCRImoKZYRAOX66NRsr6fK-F2QLurEZebGXPHGe3K-Q9LrdUm1kkDflngFrwfm6WTVw/exec?sheet=Form_Responses&t='+Date.now();
   fetch(url).then(function(r){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
   }).then(function(data){
-    rows=data;
+    console.log('Data received:', JSON.stringify(data[0]));
+    rows=Array.isArray(data)?data:[];
+    // Normalize date fields from Apps Script (may come as "Date(2026,2,9)" format)
+    rows=rows.map(function(row){
+      ['วันที่เริ่ม','วันที่สิ้นสุด'].forEach(function(k){
+        if(row[k]){
+          var s=String(row[k]);
+          var m=s.match(/Date\((\d+),(\d+),(\d+)\)/);
+          if(m){
+            var d=new Date(parseInt(m[1]),parseInt(m[2]),parseInt(m[3]));
+            row[k]=(d.getMonth()+1)+'/'+d.getDate()+'/'+d.getFullYear();
+          }
+        }
+      });
+      return row;
+    });
     document.getElementById('lsync').textContent='อัปเดต: '+new Date().toLocaleTimeString('th-TH');
     document.getElementById('sinfo').textContent='เชื่อมต่อสำเร็จ · '+rows.length+' รายการ';
     updateStats();
@@ -204,10 +219,20 @@ function getG(row){
 
 function parseDate(s){
   if(!s) return null;
+  s=String(s).trim();
+  // M/D/YYYY or D/M/YYYY
   var m=s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if(m) return new Date(parseInt(m[3]),parseInt(m[1])-1,parseInt(m[2]));
+  if(m){
+    var mo=parseInt(m[1]),dy=parseInt(m[2]),yr=parseInt(m[3]);
+    // if month > 12, swap
+    if(mo>12){var tmp=mo;mo=dy;dy=tmp;}
+    return new Date(yr,mo-1,dy);
+  }
   m=s.match(/(\d{4})-(\d{2})-(\d{2})/);
   if(m) return new Date(parseInt(m[1]),parseInt(m[2])-1,parseInt(m[3]));
+  // Handle Date object string from Apps Script
+  m=s.match(/Date\((\d+),(\d+),(\d+)\)/);
+  if(m) return new Date(parseInt(m[1]),parseInt(m[2]),parseInt(m[3]));
   return null;
 }
 
