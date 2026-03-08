@@ -156,7 +156,7 @@ function loadData(){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
   }).then(function(data){
-    console.log('Data received:', JSON.stringify(data[0]));
+    if(data&&data[0]){console.log('Keys from sheet:',JSON.stringify(Object.keys(data[0])));console.log('Row 0:',JSON.stringify(data[0]));}
     rows=Array.isArray(data)?data:[];
     // Normalize date fields from Apps Script (may come as "Date(2026,2,9)" format)
     rows=rows.map(function(row){
@@ -212,9 +212,29 @@ function splitLine(line){
 }
 
 function getG(row){
-  var v=(row['กลุ่มงาน']||'').trim();
+  // Try exact key first, then search all keys for group-like column
+  var v='';
+  var keys=Object.keys(row);
+  for(var i=0;i<keys.length;i++){
+    var k=keys[i];
+    if(k.indexOf('กลุ่ม')>=0||k.indexOf('group')>=0||k.toLowerCase().indexOf('group')>=0){
+      v=(row[k]||'').trim();
+      if(v) break;
+    }
+  }
+  if(!v) v=(row['กลุ่มงาน']||row['กลุ่ม']||'').trim();
   for(var k in GMAP){if(v.indexOf(k)>=0) return GMAP[k];}
   return '0';
+}
+
+// Helper: get field value by partial key match
+function getField(row, keyword){
+  if(row[keyword]!==undefined) return row[keyword]||'';
+  var keys=Object.keys(row);
+  for(var i=0;i<keys.length;i++){
+    if(keys[i].indexOf(keyword)>=0) return row[keys[i]]||'';
+  }
+  return '';
 }
 
 function parseDate(s){
@@ -260,7 +280,7 @@ function applyF(){
   var q=document.getElementById('sq').value.toLowerCase();
   frows=rows.filter(function(row){
     if(curg!=='all'&&getG(row)!==curg) return false;
-    if(mo){var d=parseDate(row['วันที่เริ่ม']);if(!d||(d.getMonth()+1)!==parseInt(mo)) return false;}
+    if(mo){var d=parseDate(getField(row,'วันที่เริ่ม'));if(!d||(d.getMonth()+1)!==parseInt(mo)) return false;}
     if(q&&Object.values(row).join(' ').toLowerCase().indexOf(q)<0) return false;
     return true;
   });
@@ -286,15 +306,22 @@ function rTable(el){
   var h='<div class="twrap"><table><thead><tr><th>ลำดับ</th><th>กิจกรรม</th><th>กลุ่มงาน</th><th>วันที่เริ่ม</th><th>วันที่สิ้นสุด</th><th>เวลา</th><th>สถานที่</th><th>ผู้รับผิดชอบ</th><th>หมายเหตุ</th></tr></thead><tbody>';
   frows.forEach(function(row,i){
     var g=getG(row),gi=GI[g];
+    var act=getField(row,'กิจกรรม');
+    var ds=getField(row,'วันที่เริ่ม');
+    var de=getField(row,'วันที่สิ้นสุด');
+    var tm=getField(row,'เวลา');
+    var pl=getField(row,'สถานที่');
+    var re=getField(row,'ผู้รับผิดชอบ');
+    var nt=getField(row,'หมายเหตุ');
     h+='<tr><td style="color:var(--muted);font-size:.76rem;text-align:center">'+(i+1)+'</td>';
-    h+='<td style="font-weight:600;max-width:240px">'+(row['กิจกรรม']||'–')+'</td>';
+    h+='<td style="font-weight:600;max-width:240px">'+(act||'–')+'</td>';
     h+='<td>'+(gi?'<span class="gb '+gi.gc+'">'+gi.icon+' '+gi.label+'</span>':'–')+'</td>';
-    h+='<td style="white-space:nowrap;font-size:.8rem">'+fmtD(row['วันที่เริ่ม'])+'</td>';
-    h+='<td style="white-space:nowrap;font-size:.8rem">'+fmtD(row['วันที่สิ้นสุด'])+'</td>';
-    h+='<td><span class="tb">'+(row['เวลา']||'–')+'</span></td>';
-    h+='<td style="font-size:.8rem">'+(row['สถานที่']||'–')+'</td>';
-    h+='<td style="font-size:.8rem;font-weight:600">'+(row['ผู้รับผิดชอบ']||'–')+'</td>';
-    h+='<td style="font-size:.76rem;color:var(--muted)">'+(row['หมายเหตุ']||'–')+'</td></tr>';
+    h+='<td style="white-space:nowrap;font-size:.8rem">'+(ds?fmtD(ds):'–')+'</td>';
+    h+='<td style="white-space:nowrap;font-size:.8rem">'+(de?fmtD(de):'–')+'</td>';
+    h+='<td><span class="tb">'+(tm||'–')+'</span></td>';
+    h+='<td style="font-size:.8rem">'+(pl||'–')+'</td>';
+    h+='<td style="font-size:.8rem;font-weight:600">'+(re||'–')+'</td>';
+    h+='<td style="font-size:.76rem;color:var(--muted)">'+(nt||'–')+'</td></tr>';
   });
   el.innerHTML=h+'</tbody></table></div>';
 }
@@ -302,7 +329,7 @@ function rTable(el){
 function rCard(el){
   var bm={};
   frows.forEach(function(row){
-    var d=parseDate(row['วันที่เริ่ม']);
+    var d=parseDate(getField(row,'วันที่เริ่ม'));
     var k=d?(d.getFullYear()*100+d.getMonth()+1):0;
     if(!bm[k]) bm[k]=[];
     bm[k].push(row);
@@ -315,15 +342,17 @@ function rCard(el){
     h+='<div class="msec"><div class="mt">📅 '+lbl+' <span style="font-size:.78rem;font-weight:400;color:var(--muted)">('+bm[k].length+' รายการ)</span></div><div class="cgrid">';
     bm[k].forEach(function(row){
       var g=getG(row),gi=GI[g],ec=gi?gi.ec:'';
-      var ds=fmtD(row['วันที่เริ่ม']),de=row['วันที่สิ้นสุด']&&row['วันที่สิ้นสุด']!==row['วันที่เริ่ม']?' – '+fmtD(row['วันที่สิ้นสุด']):'';
+      var dss=getField(row,'วันที่เริ่ม'),dee=getField(row,'วันที่สิ้นสุด');
+      var ds=dss?fmtD(dss):'',de=dee&&dee!==dss?' – '+fmtD(dee):'';
+      var tm2=getField(row,'เวลา'),pl2=getField(row,'สถานที่'),re2=getField(row,'ผู้รับผิดชอบ'),nt2=getField(row,'หมายเหตุ');
       h+='<div class="ec '+ec+'">';
-      h+='<div class="et">'+(row['กิจกรรม']||'(ไม่ระบุ)')+'</div>';
+      h+='<div class="et">'+(getField(row,'กิจกรรม')||'(ไม่ระบุ)')+'</div>';
       if(gi) h+='<div class="em"><span>🏷️</span><span>'+gi.label+'</span></div>';
-      h+='<div class="em"><span>📅</span><span>'+ds+de+'</span></div>';
-      if(row['เวลา']) h+='<div class="em"><span>🕐</span><span>'+row['เวลา']+'</span></div>';
-      if(row['สถานที่']) h+='<div class="em"><span>📍</span><span>'+row['สถานที่']+'</span></div>';
-      if(row['ผู้รับผิดชอบ']) h+='<div class="em"><span>👤</span><span>'+row['ผู้รับผิดชอบ']+'</span></div>';
-      if(row['หมายเหตุ']) h+='<div class="en">📝 '+row['หมายเหตุ']+'</div>';
+      if(ds) h+='<div class="em"><span>📅</span><span>'+ds+de+'</span></div>';
+      if(tm2) h+='<div class="em"><span>🕐</span><span>'+tm2+'</span></div>';
+      if(pl2) h+='<div class="em"><span>📍</span><span>'+pl2+'</span></div>';
+      if(re2) h+='<div class="em"><span>👤</span><span>'+re2+'</span></div>';
+      if(nt2) h+='<div class="en">📝 '+nt2+'</div>';
       h+='</div>';
     });
     h+='</div></div>';
@@ -336,7 +365,7 @@ function rCal(el){
   var first=new Date(caly,calm,1),last=new Date(caly,calm+1,0);
   var evm={};
   frows.forEach(function(row){
-    var d=parseDate(row['วันที่เริ่ม']);
+    var d=parseDate(getField(row,'วันที่เริ่ม'));
     if(!d) return;
     var k=d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();
     if(!evm[k]) evm[k]=[];
